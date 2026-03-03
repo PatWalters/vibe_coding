@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docking Results Viewer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #1a1b2e;
+      --bg-panel:    #1f2042;
+      --bg-toolbar:  #12132a;
+      --border:      #2d3066;
+      --accent:      #7c6af7;
+      --green:       #4af0a0;
+      --yellow:      #f0e040;
+      --red:         #f05050;
+      --cyan:        #50d8f0;
+      --text:        #e8e8f8;
+      --muted:       #6870a8;
+    }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── Toolbar ─────────────────────────────────────────── */
+    #toolbar {
+      background: var(--bg-toolbar);
+      padding: 7px 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      min-height: 46px;
+    }
+
+    .app-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-right: 6px;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+
+    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
+
+    .btn {
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .btn:disabled { opacity: 0.3; cursor: default; }
+
+    .btn-load  { color: var(--cyan);   border-color: #50d8f040; }
+    .btn-load:hover:not(:disabled)  { border-color: var(--cyan);   background: #50d8f012; }
+
+    .btn-nav   { min-width: 28px; text-align: center; }
+
+    .btn-flag  { color: var(--yellow); border-color: #f0e04040; }
+    .btn-flag:hover:not(:disabled)  { border-color: var(--yellow); background: #f0e04012; }
+    .btn-flag.on { background: #f0e04020; border-color: var(--yellow); }
+
+    .btn-export { color: var(--green); border-color: #4af0a040; }
+    .btn-export:hover:not(:disabled) { border-color: var(--green); background: #4af0a012; }
+
+    .btn-hbond { color: #a0c8ff; border-color: #a0c8ff40; }
+    .btn-hbond:hover:not(:disabled) { border-color: #a0c8ff; background: #a0c8ff12; }
+    .btn-hbond.on { background: #a0c8ff20; border-color: #a0c8ff; color: #c8e0ff; }
+
+    #mol-counter {
+      font-size: 12px;
+      color: var(--muted);
+      min-width: 62px;
+      text-align: center;
+      padding: 3px 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    /* ── Status bar ──────────────────────────────────────── */
+    #statusbar {
+      padding: 2px 14px;
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Main layout ─────────────────────────────────────── */
+    #main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Left panel ──────────────────────────────────────── */
+    #left {
+      width: 310px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .panel-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--muted);
+      padding: 5px 10px;
+      background: var(--bg-toolbar);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* 2D canvas */
+    #canvas2d-wrap {
+      flex-shrink: 0;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 220px;
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+    }
+    #canvas2d-wrap svg { max-width: 100%; max-height: 218px; }
+    #canvas2d-empty {
+      position: absolute;
+      color: #aaa;
+      font-size: 12px;
+      text-align: center;
+      padding: 20px;
+    }
+
+    /* Mol name */
+    #mol-name {
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--green);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #mol-name.flagged { color: var(--red); }
+
+    /* Properties scroll area */
+    #props-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 10px 12px;
+    }
+    #props-wrap::-webkit-scrollbar { width: 4px; }
+    #props-wrap::-webkit-scrollbar-track { background: transparent; }
+    #props-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .p-section {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      margin: 10px 0 4px;
+      padding-bottom: 2px;
+      border-bottom: 1px solid var(--border);
+    }
+    .p-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 2px 0;
+      font-size: 12px;
+      gap: 6px;
+    }
+    .p-key { color: var(--muted); flex-shrink: 0; }
+    .p-val { font-weight: 500; text-align: right; word-break: break-all; }
+    .good  { color: var(--green);  }
+    .warn  { color: var(--yellow); }
+    .bad   { color: var(--red);    }
+
+    .smiles-text {
+      font-size: 10px;
+      color: var(--muted);
+      word-break: break-all;
+      margin-top: 3px;
+      line-height: 1.4;
+    }
+
+    /* ── Right panel: 3D ─────────────────────────────────── */
+    #right {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #060610;
+    }
+
+    #viewer3d {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Loading overlay */
+    #loading {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(6, 6, 16, 1.0);
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      color: var(--green);
+      font-size: 13px;
+    }
+    #loading.show { display: flex; }
+
+  </style>
+</head>
+<body>
+
+<!-- ── Toolbar ─────────────────────────────────────────────── -->
+<div id="toolbar">
+  <span class="app-title">⚗ Docking Viewer</span>
+
+  <button class="btn btn-load" onclick="document.getElementById('inp-pdb').click()" title="Load protein PDB file">
+    📂 Protein (PDB)
+  </button>
+  <button class="btn btn-load" onclick="document.getElementById('inp-sdf').click()" title="Load ligands SDF file">
+    📂 Ligands (SDF)
+  </button>
+
+  <input type="file" id="inp-pdb" accept=".pdb,.ent" hidden onchange="loadProtein(this)">
+  <input type="file" id="inp-sdf" accept=".sdf,.sd"  hidden onchange="loadLigands(this)">
+
+  <div class="sep"></div>
+
+  <button class="btn btn-nav" id="b-first" onclick="goTo('first')" disabled title="First molecule [Home]">⏮</button>
+  <button class="btn btn-nav" id="b-prev"  onclick="goTo('prev')"  disabled title="Previous [←]">◀</button>
+  <span id="mol-counter">– / –</span>
+  <button class="btn btn-nav" id="b-next"  onclick="goTo('next')"  disabled title="Next [→]">▶</button>
+  <button class="btn btn-nav" id="b-last"  onclick="goTo('last')"  disabled title="Last molecule [End]">⏭</button>
+
+  <div class="sep"></div>
+
+  <button class="btn btn-flag"  id="b-flag"   onclick="toggleFlag()" disabled title="Flag / unflag [F]">☆ Flag</button>
+
+  <div class="sep"></div>
+
+  <button class="btn btn-hbond" id="b-hbond" onclick="toggleProtein()" disabled title="Show/hide full protein in binding-site view">○ Protein</button>
+
+  <div class="sep"></div>
+
+  <button class="btn btn-flag" id="b-clear-flag" onclick="clearFlagged()" disabled title="Clear all flagged molecules">✕ Clear Flagged</button>
+
+  <button class="btn btn-export" id="b-export" onclick="exportFlagged()" disabled>
+    ⬇ Export Flagged (<span id="flag-count">0</span>)
+  </button>
+</div>
+
+<div id="statusbar">Ready — load a protein (PDB) and ligands (SDF) to begin.</div>
+
+<!-- ── Main ───────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- Left: 2D + Properties -->
+  <div id="left">
+    <div class="panel-label">2D Structure</div>
+
+    <div id="canvas2d-wrap">
+      <div id="canvas2d-empty">Load a ligand SDF to view structures</div>
+      <div id="canvas2d"></div>
+    </div>
+
+    <div id="mol-name" hidden></div>
+
+    <div class="panel-label" id="props-label" hidden>Properties</div>
+    <div id="props-wrap" hidden>
+      <div id="props"></div>
+    </div>
+  </div>
+
+  <!-- Right: 3D Mol* -->
+  <div id="right">
+    <div id="viewer3d"></div>
+    <div id="loading">⟳ Loading structure…</div>
+  </div>
+
+</div>
+
+<!-- Mol* -->
+<script src="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════
+let proteinPDB  = '';
+let molecules   = [];   // [{molblock, fullBlock, props, name}]
+let curIdx      = 0;
+let flagged     = new Set();
+let viewer3d    = null; // Mol* Viewer instance
+let rdkit       = null; // RDKit.js module
+let proteinRefs  = [];   // Mol* root-level refs for the protein structure
+let contactsRefs = [];   // Mol* root-level refs for combined binding-site+ligand structure
+let showProteinWithLigand = false; // user toggle: show full protein in binding-site view
+let proteinStructRef = null; // StateObjectSelector for protein structure node
+let proteinPolyRef   = null; // StateObjectSelector for protein polymer component
+
+// ═══════════════════════════════════════════════════════════
+//  RDKit loader
+// ═══════════════════════════════════════════════════════════
+const rdkitReady = new Promise((resolve, reject) => {
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js';
+  s.onload = () => window.initRDKitModule().then(resolve, reject);
+  s.onerror = () => reject(new Error('RDKit CDN unavailable'));
+  document.head.appendChild(s);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  File loaders
+// ═══════════════════════════════════════════════════════════
+function loadProtein(input) {
+  const f = input.files[0]; input.value = '';
+  if (!f) return;
+  readText(f).then(txt => {
+    proteinPDB      = txt;
+    proteinRefs     = [];   // force protein reload in viewer
+    contactsRefs    = [];   // stale after clear
+    proteinStructRef = null;
+    proteinPolyRef   = null;
+    setStatus(`Protein loaded: ${f.name}`);
+    refresh(true);
+  });
+}
+
+function loadLigands(input) {
+  const f = input.files[0]; input.value = '';
+  if (!f) return;
+  readText(f).then(txt => {
+    molecules  = parseSDF(txt);
+    curIdx     = 0;
+    flagged    = new Set();
+    contactsRefs = [];   // force contacts reload in viewer
+    showProteinWithLigand = false;
+    document.getElementById('b-hbond').classList.remove('on');
+    document.getElementById('b-hbond').textContent = '○ Protein';
+    updateFlagCount();
+    setStatus(`Loaded ${molecules.length} molecule(s) from ${f.name}`);
+    refresh(true);
+  });
+}
+
+function readText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload  = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsText(file);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SDF Parser
+// ═══════════════════════════════════════════════════════════
+
+// Ensure a molblock has exactly 3 header lines before the counts line.
+// SDF requires: line1=name, line2=program, line3=comment, line4=counts.
+// Trim/split can corrupt this by removing the blank name line.
+function normalizeMolblock(mb) {
+  const lines = mb.split('\n');
+  let countsIdx = -1;
+  for (let i = 0; i < Math.min(lines.length, 8); i++) {
+    // Counts line: aaabbblll... (3-digit atom count, 3-digit bond count)
+    if (/^\s*\d{1,3}\s+\d{1,3}\s+\d/.test(lines[i])) { countsIdx = i; break; }
+  }
+  if (countsIdx < 0) return mb;
+  const header = lines.slice(0, countsIdx);
+  const rest   = lines.slice(countsIdx);
+  while (header.length < 3) header.unshift(''); // pad to 3 lines
+  return [...header.slice(-3), ...rest].join('\n'); // keep last 3 header lines
+}
+
+function parseSDF(raw) {
+  raw = raw.replace(/\r\n?/g, '\n');
+  return raw.split('$$$$')
+    .map(b => b.trimEnd())          // trim trailing only — preserve leading blank (mol name line)
+    .filter(b => b.trim().length > 0)
+    .map(block => {
+      const mend = block.search(/M\s+END/);
+      if (mend < 0) return null;
+      const rawMolblock = block.substring(0, mend + block.match(/M\s+END/)[0].length);
+      const molblock    = normalizeMolblock(rawMolblock); // fix SDF 3-line header
+      const propText    = block.substring(mend);
+      const props       = {};
+      const re          = /^>\s*<([^>]+)>/mg;
+      let m;
+      while ((m = re.exec(propText)) !== null) {
+        const key = m[1].trim();
+        // Skip to the START of the next line after the header — some generators
+        // put extra metadata on the same line as "> <Name>" which would
+        // otherwise be mistaken for the value.
+        const headerEnd = propText.indexOf('\n', m.index + m[0].length);
+        const rest = headerEnd >= 0 ? propText.substring(headerEnd + 1) : '';
+        const val  = rest.split('\n').map(l => l.trim()).find(l => l.length && !l.startsWith('>')) || '';
+        props[key] = val;
+      }
+      const name = molblock.split('\n')[0].trim() || props['idnumber'] || '';
+      return { molblock, fullBlock: block.trim(), props, name };
+    })
+    .filter(Boolean);
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  Binding-site + contacts helpers
+// ═══════════════════════════════════════════════════════════
+
+// Extract heavy-atom XYZ positions from a V2000 SDF molblock.
+function parseLigandAtoms(molblock) {
+  const lines = molblock.split('\n');
+  let ci = -1;
+  for (let i = 0; i < Math.min(lines.length, 8); i++) {
+    if (/^\s*\d{1,3}\s+\d{1,3}\s+\d/.test(lines[i])) { ci = i; break; }
+  }
+  if (ci < 0) return [];
+  const nAtoms = parseInt(lines[ci].substring(0, 3), 10) || 0;
+  const atoms = [];
+  for (let i = 0; i < nAtoms; i++) {
+    const l = lines[ci + 1 + i] || '';
+    const x = parseFloat(l.substring(0, 10));
+    const y = parseFloat(l.substring(10, 20));
+    const z = parseFloat(l.substring(20, 30));
+    if (!isNaN(x)) atoms.push({ x, y, z });
+  }
+  return atoms;
+}
+
+// Convert an SDF V2000 molblock to PDB HETATM + CONECT records.
+function molblockToHetatm(molblock, resName = 'LIG', chain = 'Z', seq = 1) {
+  const lines = molblock.split('\n');
+  let ci = -1;
+  for (let i = 0; i < Math.min(lines.length, 8); i++) {
+    if (/^\s*\d{1,3}\s+\d{1,3}/.test(lines[i])) { ci = i; break; }
+  }
+  if (ci < 0) return '';
+  const nAtoms = parseInt(lines[ci].substring(0, 3), 10) || 0;
+  const nBonds = parseInt(lines[ci].substring(3, 6), 10) || 0;
+  if (!nAtoms) return '';
+
+  const atomLines = lines.slice(ci + 1, ci + 1 + nAtoms);
+  const bondLines = lines.slice(ci + 1 + nAtoms, ci + 1 + nAtoms + nBonds);
+
+  const elCount = {};
+  const hetatm = atomLines.map((l, i) => {
+    const x = parseFloat(l.substring(0, 10));
+    const y = parseFloat(l.substring(10, 20));
+    const z = parseFloat(l.substring(20, 30));
+    const el = l.substring(31, 34).trim() || 'C';
+    if (isNaN(x)) return '';
+    elCount[el] = (elCount[el] || 0) + 1;
+    const idx = elCount[el];
+    const aname = (el.length === 1 ? ` ${el}${idx}` : `${el}${idx}`).substring(0, 4).padEnd(4);
+    return (
+      'HETATM' + (i + 1).toString().padStart(5) + ' ' + aname + ' ' +
+      resName.substring(0, 3).padEnd(3) + ' ' + chain.substring(0, 1) +
+      seq.toString().padStart(4) + '    ' +
+      x.toFixed(3).padStart(8) + y.toFixed(3).padStart(8) + z.toFixed(3).padStart(8) +
+      '  1.00  0.00          ' + el.toUpperCase().padStart(2).substring(0, 2)
+    );
+  }).filter(Boolean);
+
+  const bmap = {};
+  bondLines.forEach(l => {
+    if (!l.trim() || l.trim().startsWith('M')) return;
+    const a = parseInt(l.substring(0, 3)), b = parseInt(l.substring(3, 6));
+    if (!a || !b || isNaN(a) || isNaN(b)) return;
+    (bmap[a] = bmap[a] || []).push(b);
+    (bmap[b] = bmap[b] || []).push(a);
+  });
+  const conect = Object.entries(bmap).map(([at, ps]) =>
+    'CONECT' + Number(at).toString().padStart(5) +
+    ps.slice(0, 4).map(p => p.toString().padStart(5)).join('')
+  );
+  return [...hetatm, ...conect].join('\n');
+}
+
+// Return the element symbol for a PDB ATOM/HETATM line.
+// Prefers the standard element column (cols 77-78); falls back to atom name.
+function getAtomElement(line) {
+  const el = line.length >= 78 ? line.substring(76, 78).trim().toUpperCase() : '';
+  if (el) return el;
+  // Parse from atom name (cols 13-16): strip leading digits, take first char.
+  return line.substring(12, 16).trim().replace(/^\d+/, '').substring(0, 1).toUpperCase();
+}
+
+// Build a PDB containing (a) protein residues within `threshold` Å of the
+// ligand, and (b) the ligand itself as HETATM records.  Having both in one
+// structure allows Mol* to detect protein–ligand non-covalent contacts.
+// Only polar hydrogens (bonded to N/O/S) are kept for the protein residues.
+function buildContactsPDB(pdb, molblock, threshold = 5.0) {
+  const ligAtoms = parseLigandAtoms(molblock);
+  if (!ligAtoms.length) return '';
+  const thresh2 = threshold * threshold;
+
+  // Group protein ATOM lines by residue.
+  const resMap = new Map();
+  for (const line of pdb.split('\n')) {
+    if (!line.startsWith('ATOM  ')) continue;
+    const x = parseFloat(line.substring(30, 38));
+    const y = parseFloat(line.substring(38, 46));
+    const z = parseFloat(line.substring(46, 54));
+    if (isNaN(x)) continue;
+    const key = line.substring(21, 26);
+    if (!resMap.has(key)) resMap.set(key, []);
+    resMap.get(key).push({ x, y, z, line });
+  }
+
+  // Keep residues with any atom within threshold of any ligand atom.
+  // Within each residue keep heavy atoms + polar H (H bonded to N, O, or S).
+  const bsLines = [];
+  for (const [, atoms] of resMap) {
+    if (atoms.some(a => ligAtoms.some(la => {
+      const dx = a.x - la.x, dy = a.y - la.y, dz = a.z - la.z;
+      return dx * dx + dy * dy + dz * dz <= thresh2;
+    }))) {
+      // Collect heavy atoms for this residue once (used for polar-H detection).
+      const heavyAtoms = atoms.filter(a => {
+        const el = getAtomElement(a.line);
+        return el !== 'H' && el !== 'D';
+      });
+      for (const a of atoms) {
+        const el   = getAtomElement(a.line);
+        // Remap chain ID to 'S' (binding Site) — see protein-loading comment.
+        const line = a.line.substring(0, 21) + 'S' + a.line.substring(22);
+        if (el === 'H' || el === 'D') {
+          // Polar H: find the nearest heavy atom (always the covalent bond
+          // partner — H-X bonds are 0.96–1.34 Å, non-bonded contacts ≥2 Å).
+          // Keep the H only if that partner is N, O, or S.
+          let minD2 = Infinity, nearEl = '';
+          for (const ha of heavyAtoms) {
+            const d2 = (a.x-ha.x)**2 + (a.y-ha.y)**2 + (a.z-ha.z)**2;
+            if (d2 < minD2) { minD2 = d2; nearEl = getAtomElement(ha.line); }
+          }
+          if ('NOS'.includes(nearEl)) bsLines.push(line);
+        } else {
+          bsLines.push(line);
+        }
+      }
+    }
+  }
+  if (!bsLines.length) return '';
+
+  const hetatm = molblockToHetatm(molblock);
+  if (!hetatm) return '';
+  return bsLines.join('\n') + '\n' + hetatm + '\nEND\n';
+}
+
+// Load a contacts PDB (binding-site residues + ligand) and apply three
+// representations:
+//   • polymer  → ball-and-stick  (the surrounding residues)
+//   • ligand   → ball-and-stick  (the docked molecule)
+//   • all      → interactions    (non-covalent contacts between them)
+// Protein and ligand must be in the same structure for Mol* to detect
+// cross-molecule contacts.
+async function addContactsStructure(combinedPDB) {
+  const plugin = viewer3d.plugin;
+  const b = plugin.builders;
+
+  const rawData   = await b.data.rawData({ data: combinedPDB, label: 'Binding Site' });
+  const traj      = await b.structure.parseTrajectory(rawData, 'pdb');
+  const model     = await b.structure.createModel(traj);
+  const structure = await b.structure.createStructure(model);
+
+  // Polymer (binding-site residues) → ball-and-stick, CPK colors via direct
+  // state-transform params (third arg) to guarantee element-symbol is applied.
+  const polymer = await b.structure.tryCreateComponentStatic(
+    structure, 'polymer', { label: 'Binding Site Residues' }
+  );
+  if (polymer) {
+    await b.structure.representation.addRepresentation(polymer, {
+      type: 'ball-and-stick',
+      typeParams: { sizeFactor: 0.15, sizeAspectRatio: 0.73 },
+      color: 'element-symbol',
+      colorParams: { carbonColor: { name: 'uniform', params: { value: 0x6BAED6 } } }
+    });
+  }
+
+  // Ligand (HETATM) → ball-and-stick, CPK colors
+  const ligand = await b.structure.tryCreateComponentStatic(
+    structure, 'ligand', { label: 'Ligand' }
+  );
+  if (ligand) {
+    await b.structure.representation.addRepresentation(ligand, {
+      type: 'ball-and-stick',
+      typeParams: { sizeFactor: 0.22 },
+      color: 'element-symbol',
+      colorParams: { carbonColor: { name: 'uniform', params: { value: 0xFD8D3C } } }
+    });
+  }
+
+  // All atoms → interactions (H-bonds, hydrophobic, etc.)
+  const all = await b.structure.tryCreateComponentStatic(
+    structure, 'all', { label: 'Non-covalent Contacts' }
+  );
+  if (all) {
+    await b.structure.representation.addRepresentation(all, {
+      type: 'interactions',
+      typeParams: { sizeFactor: 0.35 }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  3D Viewer
+// ═══════════════════════════════════════════════════════════
+
+// Return refs of all root-level state nodes (direct children of the state
+// root).  Deleting one cascades to all its descendants.
+function getRootLevelRefs(plugin) {
+  try {
+    const transforms = plugin.state.data.transforms;
+    let rootRef = null;
+    for (const [, t] of transforms) {
+      if (t.ref === t.parent) { rootRef = t.ref; break; }
+    }
+    if (!rootRef) return [];
+    return [...transforms]
+      .filter(([ref, t]) => t.parent === rootRef && ref !== rootRef)
+      .map(([ref]) => ref);
+  } catch (_) { return []; }
+}
+
+// Show or hide the protein cartoon by deleting/re-adding the polymer
+// component.  Using updateCellState(isHidden) is unreliable in the CDN
+// standalone build (it fires a state event but canvas3d may not re-render).
+// Deleting the node guarantees visual removal; re-adding it guarantees
+// it reappears with a stable secondary-structure color theme.
+async function setProteinVisible(visible) {
+  if (!viewer3d || !proteinStructRef) return;
+  const plugin = viewer3d.plugin;
+  if (!visible) {
+    if (proteinPolyRef) {
+      try { await deleteRefs(plugin, [proteinPolyRef.ref]); } catch (e) { console.warn(e); }
+      proteinPolyRef = null;
+    }
+  } else {
+    const polyExists = proteinPolyRef &&
+      plugin.state.data.transforms.has(proteinPolyRef.ref);
+    if (!polyExists) {
+      try {
+        const b = plugin.builders;
+        const poly = await b.structure.tryCreateComponentStatic(proteinStructRef, 'polymer');
+        if (poly) {
+          await b.structure.representation.addRepresentation(poly, {
+            type: 'cartoon',
+            color: 'uniform',
+            colorParams: { value: 0x6BAED6 }   // steel blue
+          });
+          proteinPolyRef = poly;
+        }
+      } catch (e) { console.warn('setProteinVisible re-add failed:', e); }
+    }
+  }
+}
+
+async function deleteRefs(plugin, refs) {
+  if (!refs.length) return;
+  try {
+    const upd = plugin.state.data.build();
+    for (const ref of refs) {
+      if (plugin.state.data.transforms.has(ref)) upd.delete(ref);
+    }
+    await upd.commit();
+  } catch (e) { console.warn('deleteRefs failed:', e); }
+}
+
+// updateViewer — keeps the protein in place and only swaps the contacts
+// structure (binding-site residues + ligand in one PDB).  Having protein
+// and ligand in the same sub-structure lets Mol* detect cross-molecule
+// non-covalent contacts (H-bonds, hydrophobic, etc.).
+async function updateViewer(resetCam) {
+  if (!viewer3d) return;
+  setLoading(true);
+  const plugin = viewer3d.plugin;
+
+  try {
+    // Nothing to show — clear scene.
+    if (!proteinPDB && !molecules.length) {
+      if (proteinRefs.length || contactsRefs.length) {
+        await plugin.clear();
+        proteinRefs  = [];
+        contactsRefs = [];
+      }
+      return;
+    }
+
+    // ── Step 1: Load protein (only when needed) ────────────────
+    // proteinRefs is [] when the protein hasn't been loaded yet, or when a
+    // new protein file was chosen.  We never reload the protein on ligand
+    // navigation, so any representation changes the user makes in the Mol*
+    // panel are preserved.
+    //
+    // We use the low-level builders (not loadStructureFromData / auto preset)
+    // so we can pin the color theme to 'chain-id'.  The auto preset applies
+    // 'operator-hue' — an index-based theme that reassigns every color
+    // whenever any structure is added to or removed from the scene.
+    if (proteinPDB && !proteinRefs.length) {
+      await plugin.clear();
+      contactsRefs = [];
+      const b = plugin.builders;
+      const rawData = await b.data.rawData({ data: proteinPDB, label: 'Protein' });
+      const traj    = await b.structure.parseTrajectory(rawData, 'pdb');
+      const model   = await b.structure.createModel(traj);
+      const struct  = await b.structure.createStructure(model);
+      proteinStructRef = struct;
+      const poly    = await b.structure.tryCreateComponentStatic(struct, 'polymer');
+      if (poly) {
+        // colorTheme in the second argument (the representation params object).
+        // 'secondary-structure' is purely intrinsic to the protein and never
+        // changes based on what other structures are in the scene.
+        await b.structure.representation.addRepresentation(poly, {
+          type: 'cartoon',
+          color: 'uniform',
+          colorParams: { value: 0x6BAED6 }   // steel blue — never changes
+        });
+        proteinPolyRef = poly;
+      }
+      proteinRefs = getRootLevelRefs(plugin);
+      resetCam = true;
+    }
+
+    // ── Step 2: Swap contacts structure ───────────────────────
+    // Build a PDB containing binding-site residues (ATOM) + ligand (HETATM).
+    // Because they share one structure, Mol* can compute cross-molecule
+    // contacts.  Load new first, delete old — no black-canvas flash.
+    if (molecules.length) {
+      const mol = molecules[curIdx];
+
+      // Apply the current protein-visibility preference before any structural
+      // swap so the user never sees a flash of re-coloured protein.
+      if (proteinPDB) await setProteinVisible(showProteinWithLigand);
+
+      let camSnap = null;
+      if (!resetCam) {
+        try { camSnap = plugin.canvas3d?.camera.getSnapshot(); } catch (_) {}
+      }
+
+      let newContactsRefs = [];
+
+      if (proteinPDB) {
+        // Combined path: binding-site residues + ligand with interactions.
+        const combinedPDB = buildContactsPDB(proteinPDB, mol.molblock);
+        if (combinedPDB) {
+          const refsBefore = new Set(getRootLevelRefs(plugin));
+          try {
+            await addContactsStructure(combinedPDB);
+            newContactsRefs = getRootLevelRefs(plugin).filter(r => !refsBefore.has(r));
+          } catch (e) { console.warn('Contacts structure failed:', e); }
+        }
+      } else {
+        // Ligand-only (no protein loaded): just show the mol.
+        const refsBefore = new Set(getRootLevelRefs(plugin));
+        await viewer3d.loadStructureFromData(mol.molblock, 'mol');
+        newContactsRefs = getRootLevelRefs(plugin).filter(r => !refsBefore.has(r));
+      }
+
+      // Delete old contacts now that the new structure is rendered.
+      await deleteRefs(plugin, contactsRefs);
+      contactsRefs = newContactsRefs;
+
+      if (camSnap) {
+        try { plugin.canvas3d?.camera.setState(camSnap, 0); } catch (_) {}
+      } else if (resetCam && proteinPDB) {
+        // Zoom to ligand centroid so the binding site fills the view.
+        // We maintain the current viewing direction but move both target and
+        // position so the camera is ~30 Å from the ligand centroid.
+        try {
+          const ligAtoms = parseLigandAtoms(mol.molblock);
+          if (ligAtoms.length) {
+            const cx = ligAtoms.reduce((s, a) => s + a.x, 0) / ligAtoms.length;
+            const cy = ligAtoms.reduce((s, a) => s + a.y, 0) / ligAtoms.length;
+            const cz = ligAtoms.reduce((s, a) => s + a.z, 0) / ligAtoms.length;
+            setTimeout(() => {
+              try {
+                const cam = plugin.canvas3d?.camera;
+                if (!cam) return;
+                const snap = cam.getSnapshot();
+                // Current view direction: from position toward target
+                const [px, py, pz] = snap.position;
+                const [tx, ty, tz] = snap.target;
+                let dx = tx - px, dy = ty - py, dz = tz - pz;
+                const len = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+                dx /= len; dy /= len; dz /= len;
+                // Place camera 30 Å behind ligand centroid along same direction
+                const dist = 30;
+                cam.setState({
+                  target:   [cx, cy, cz],
+                  position: [cx - dx*dist, cy - dy*dist, cz - dz*dist],
+                  radius: 12
+                }, 600);
+              } catch (_) {}
+            }, 80);
+          }
+        } catch (_) {}
+      }
+
+    } else if (contactsRefs.length) {
+      await deleteRefs(plugin, contactsRefs);
+      contactsRefs = [];
+      await setProteinVisible(true);
+    }
+
+  } catch (err) {
+    console.error('Viewer error:', err);
+    setStatus('3D viewer error: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── Protein visibility toggle ──────────────────────────────
+// Interactions are always shown.  The button now toggles whether the full
+// protein cartoon is visible alongside the binding-site ball-and-stick.
+function toggleProtein() {
+  showProteinWithLigand = !showProteinWithLigand;
+  const btn = document.getElementById('b-hbond');
+  btn.classList.toggle('on', showProteinWithLigand);
+  btn.textContent = showProteinWithLigand ? '● Protein' : '○ Protein';
+  if (viewer3d && proteinStructRef) setProteinVisible(showProteinWithLigand);
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  2D Structure
+// ═══════════════════════════════════════════════════════════
+function render2D() {
+  const wrap  = document.getElementById('canvas2d');
+  const empty = document.getElementById('canvas2d-empty');
+
+  if (!rdkit || !molecules.length) {
+    wrap.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const mol = molecules[curIdx];
+  let svg = '';
+
+  // The SDF has 3D coordinates — rendering them directly produces a garbled image.
+  // Correct approach: load 3D molblock → extract canonical SMILES → render clean 2D.
+  let smiles = null;
+
+  // Step 1: extract SMILES from the (now correctly normalized) 3D molblock
+  try {
+    const m3d = rdkit.get_mol(mol.molblock);
+    if (m3d?.is_valid()) { smiles = m3d.get_smiles(); }
+    m3d?.delete();
+  } catch (e) { console.warn('Molblock → SMILES failed:', e); }
+
+  // Step 2: fall back to SMILES stored in SDF data fields
+  if (!smiles) {
+    smiles = mol.props['Hetero-Bemis-Murcko'] || mol.props['BemisMurcko'];
+  }
+
+  // Step 3: render clean 2D depiction from SMILES (RDKit generates 2D coords)
+  if (smiles) {
+    try {
+      const m2d = rdkit.get_mol(smiles);
+      if (m2d?.is_valid()) { svg = m2d.get_svg(294, 214); }
+      m2d?.delete();
+    } catch (e) { console.warn('SMILES → SVG failed:', e); }
+  }
+
+  wrap.innerHTML = svg || '<div style="color:#aaa;font-size:11px;text-align:center;padding:20px">2D render unavailable</div>';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Properties Panel
+// ═══════════════════════════════════════════════════════════
+function renderProps() {
+  const nameEl      = document.getElementById('mol-name');
+  const propsLabel  = document.getElementById('props-label');
+  const propsWrap   = document.getElementById('props-wrap');
+  const propsEl     = document.getElementById('props');
+
+  if (!molecules.length) {
+    nameEl.hidden = propsLabel.hidden = propsWrap.hidden = true;
+    return;
+  }
+
+  const mol       = molecules[curIdx];
+  const p         = mol.props;
+  const isFlagged = flagged.has(curIdx);
+
+  nameEl.hidden = false;
+  nameEl.textContent = (p['idnumber'] || mol.name || `Molecule ${curIdx + 1}`) + (isFlagged ? '  ★' : '');
+  nameEl.className   = isFlagged ? 'flagged' : '';
+
+  propsLabel.hidden = propsWrap.hidden = false;
+
+  const fmt = (v, d = 3) => isNaN(+v) ? v : (+v).toFixed(d);
+  const row  = (k, v, cls = '') =>
+    `<div class="p-row"><span class="p-key">${k}</span><span class="p-val ${cls}">${v}</span></div>`;
+
+  let h = '';
+
+  // Scoring
+  if (p['Chemgauss4'] !== undefined) {
+    h += '<div class="p-section">Scoring</div>';
+    const s = +p['Chemgauss4'];
+    h += row('Chemgauss4', fmt(p['Chemgauss4']), s < -14.5 ? 'good' : s < -13 ? '' : 'warn');
+  }
+
+  // Drug-likeness
+  h += '<div class="p-section">Drug-Likeness</div>';
+  if (p['MW']              !== undefined) h += row('MW (neutral)',    fmt(p['MW'], 2) + ' Da');
+  if (p['Molecule Weight'] !== undefined) h += row('MW (charged)',    fmt(p['Molecule Weight'], 2) + ' Da');
+  if (p['QED']             !== undefined) {
+    const q = +p['QED'];
+    h += row('QED', fmt(p['QED']), q > 0.7 ? 'good' : q > 0.4 ? '' : 'warn');
+  }
+  if (p['XLogP']   !== undefined) {
+    const v = +p['XLogP'];
+    h += row('XLogP', fmt(p['XLogP'], 2), Math.abs(v) <= 5 ? '' : 'warn');
+  }
+  if (p['sLogP']   !== undefined) h += row('sLogP',            fmt(p['sLogP'], 3));
+  if (p['TPSA']    !== undefined) {
+    const v = +p['TPSA'];
+    h += row('TPSA', fmt(p['TPSA'], 1) + ' Å²', v <= 140 ? '' : 'warn');
+  }
+  if (p['HBD']     !== undefined) h += row('H-bond Donors',    p['HBD']);
+  if (p['HBA']     !== undefined) h += row('H-bond Acceptors', p['HBA']);
+  if (p['RotBonds']!== undefined) h += row('Rotatable Bonds',  p['RotBonds']);
+  if (p['FSP3']    !== undefined) h += row('Fsp3',             fmt(p['FSP3'], 3));
+
+  // Filters
+  const filterKeys = [
+    ['lead-like', 'Lead-like'],
+    ['NIH',       'NIH Filter'],
+    ['BRENK',     'BRENK Filter']
+  ];
+  const hasFilters = filterKeys.some(([k]) => p[k] !== undefined);
+  if (hasFilters) {
+    h += '<div class="p-section">Filters</div>';
+    filterKeys.forEach(([k, lbl]) => {
+      if (p[k] !== undefined) {
+        const pass = p[k] === 'True';
+        h += row(lbl, pass ? '✓ Pass' : '✗ Fail', pass ? 'good' : 'bad');
+      }
+    });
+  }
+
+  // Synthesis
+  if (p['reaction'] || p['reagent1'] || p['reagent2']) {
+    h += '<div class="p-section">Synthesis</div>';
+    if (p['reaction'])  h += row('Reaction',  p['reaction']);
+    if (p['reagent1'])  h += row('Reagent 1', p['reagent1']);
+    if (p['reagent2'])  h += row('Reagent 2', p['reagent2']);
+  }
+
+  // Framework SMILES
+  const fw = p['Hetero-Bemis-Murcko'] || p['BemisMurcko'];
+  if (fw) {
+    h += '<div class="p-section">Framework</div>';
+    h += `<div class="smiles-text">${fw}</div>`;
+  }
+
+  propsEl.innerHTML = h;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Navigation
+// ═══════════════════════════════════════════════════════════
+function goTo(dir) {
+  const n = molecules.length; if (!n) return;
+  switch (dir) {
+    case 'first': curIdx = 0;           break;
+    case 'prev':  curIdx = Math.max(0, curIdx - 1);     break;
+    case 'next':  curIdx = Math.min(n - 1, curIdx + 1); break;
+    case 'last':  curIdx = n - 1;       break;
+  }
+  refresh(false);
+}
+
+function updateNav() {
+  const n  = molecules.length;
+  const ok = n > 0;
+  document.getElementById('b-first').disabled = !ok || curIdx === 0;
+  document.getElementById('b-prev').disabled  = !ok || curIdx === 0;
+  document.getElementById('b-next').disabled  = !ok || curIdx >= n - 1;
+  document.getElementById('b-last').disabled  = !ok || curIdx >= n - 1;
+  document.getElementById('b-flag').disabled  = !ok;
+  document.getElementById('b-hbond').disabled = !ok;
+  document.getElementById('mol-counter').textContent = ok ? `${curIdx + 1} / ${n}` : '– / –';
+  const isFl = flagged.has(curIdx);
+  const fb   = document.getElementById('b-flag');
+  fb.textContent = isFl ? '★ Flagged' : '☆ Flag';
+  fb.classList.toggle('on', isFl);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Flagging & Export
+// ═══════════════════════════════════════════════════════════
+function toggleFlag() {
+  if (!molecules.length) return;
+  flagged.has(curIdx) ? flagged.delete(curIdx) : flagged.add(curIdx);
+  updateFlagCount();
+  updateNav();
+  renderProps();
+}
+
+function updateFlagCount() {
+  const n = flagged.size;
+  document.getElementById('flag-count').textContent = n;
+  document.getElementById('b-export').disabled     = n === 0;
+  document.getElementById('b-clear-flag').disabled = n === 0;
+}
+
+function clearFlagged() {
+  if (!flagged.size) return;
+  flagged.clear();
+  updateFlagCount();
+  updateNav();
+  renderProps();
+  setStatus('Flagged list cleared.');
+}
+
+function exportFlagged() {
+  if (!flagged.size) { alert('No molecules flagged.'); return; }
+  const content = [...flagged].sort((a, b) => a - b)
+    .map(i => molecules[i].fullBlock + '\n$$$$\n').join('');
+  const a = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([content], { type: 'text/plain' })),
+    download: 'flagged_hits.sdf'
+  });
+  document.body.appendChild(a); a.click(); a.remove();
+  setStatus(`Exported ${flagged.size} flagged molecule(s) as flagged_hits.sdf`);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Main refresh — call after any state change
+// ═══════════════════════════════════════════════════════════
+function refresh(resetCam = true) {
+  updateNav();
+  render2D();
+  renderProps();
+  updateViewer(resetCam);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Utilities
+// ═══════════════════════════════════════════════════════════
+function setStatus(msg) { document.getElementById('statusbar').textContent = msg; }
+function setLoading(v)  { document.getElementById('loading').classList.toggle('show', v); }
+
+// ═══════════════════════════════════════════════════════════
+//  Keyboard shortcuts
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  switch (e.key) {
+    case 'ArrowLeft':  case 'ArrowUp':    e.preventDefault(); goTo('prev');  break;
+    case 'ArrowRight': case 'ArrowDown':  e.preventDefault(); goTo('next');  break;
+    case 'Home':                           e.preventDefault(); goTo('first'); break;
+    case 'End':                            e.preventDefault(); goTo('last');  break;
+    case 'f': case 'F':                    toggleFlag();                       break;
+    case 'p': case 'P':                    toggleProtein();                    break;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Initialisation
+// ═══════════════════════════════════════════════════════════
+async function init() {
+  setStatus('Initializing…');
+
+  // RDKit in parallel (non-blocking)
+  rdkitReady.then(rdk => {
+    rdkit = rdk;
+    setStatus('RDKit.js ready.');
+    if (molecules.length) render2D();
+  }).catch(err => {
+    console.warn('RDKit unavailable:', err);
+    setStatus('Note: RDKit.js failed to load — 2D structures unavailable. Check console.');
+  });
+
+  // Mol*
+  try {
+    viewer3d = await molstar.Viewer.create('viewer3d', {
+      layoutIsExpanded:           false,
+      layoutShowControls:         true,
+      layoutShowRemoteState:      false,
+      layoutShowSequence:         false,
+      layoutShowLog:              false,
+      layoutShowLeftPanel:        true,
+      collapseLeftPanel:          true,
+      viewportShowExpand:         false,
+      viewportShowControls:       true,
+      viewportShowSettings:       false,
+      viewportShowSelectionMode:  false,
+      viewportShowAnimation:      false,
+    });
+    setStatus('Ready — load a protein (PDB) and ligands (SDF) to begin. Keyboard: ← → navigate, F flag, H toggle H-bonds.');
+  } catch (err) {
+    console.error('Mol* init failed:', err);
+    document.getElementById('right').innerHTML =
+      `<div style="color:#f05050;padding:24px;font-size:13px;line-height:1.6">
+        <b>3D viewer failed to initialize.</b><br>
+        Error: ${err.message}<br><br>
+        Try refreshing the page or use a modern Chromium-based browser.
+      </div>`;
+    setStatus('Error: 3D viewer failed to initialize.');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
